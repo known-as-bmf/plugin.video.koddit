@@ -20,20 +20,16 @@
 from xbmcswift2 import Plugin
 from xbmcswift2 import actions
 import requests
+from urlparse import parse_qsl, urlparse
+import HTMLParser
 import xbmc
 import xbmcgui
-import os
-import json
-import urllib
-import urllib2
 
 
 plugin = Plugin()
 
 storage = plugin.get_storage('KodditStorage', file_format='json')
-try:
-    len(storage['subreddits'])
-except:
+if 'subreddits' not in storage:
     storage['subreddits'] = []
 
 base_url = 'http://www.reddit.com'
@@ -52,9 +48,152 @@ headers = {'user-agent': plugin.name + '/' + plugin.addon.getAddonInfo('version'
 default_params = {'limit': 30}
 
 youtube_domains = ['youtube.com', 'youtu.be', 'm.youtube.com']
-vimeo_domains   = ['vimeo.com']
-known_domains   = youtube_domains + vimeo_domains
+vimeo_domains = ['vimeo.com']
+known_domains = youtube_domains + vimeo_domains
 video_sub_threshold = 0.65
+
+
+class ParsingException(Exception):
+    pass
+
+
+class VideoItem(object):
+    __html_parser = HTMLParser.HTMLParser()
+
+    def __init__(self, data):
+        self._data = data
+        self._url = None
+        self._parsed_url = None
+        self._parsed_qs = None
+
+    def _get_url(self):
+        if not self._url:
+            self._url = self._get_media('url') or self._data['data']['url']
+        return self._url
+
+    def _in_media(self, field):
+        return self._data['data']['media'] and field in self._data['data']['media']['oembed']
+
+    def _get_media(self, field):
+        return self._data['data']['media']['oembed'][field] if self._in_media(field) else None
+
+    def _get_parsed_url(self):
+        if not self._parsed_url:
+            self._parsed_url = urlparse(self.__html_parser.unescape(self._get_url()))
+        return self._parsed_url
+
+    def _get_parsed_qs(self):
+        if not self._parsed_url:
+            self._parsed_qs = dict(parse_qsl(self._get_parsed_url().query, keep_blank_values=True))
+        return self._parsed_qs
+
+    def get_plugin_url(self):
+        raise NotImplementedError
+
+    def get_thumbnail_url(self):
+        raise NotImplementedError
+
+    def build_item(self):
+        title = self._get_media('title') or self._data['data']['title']
+        desc = u'Score : {score} | Author : {author}\n{reddit_title}\n{desc}'
+        desc = desc.format(score=str(self._data['data']['score']),
+                           author=self._data['data']['author'],
+                           reddit_title=self._data['data']['title'],
+                           desc=self._get_media('description') or '')
+        thumb = self.get_thumbnail_url()
+        path = self.get_plugin_url()
+
+        return {
+            'label': title,
+            'path': path,
+            'thumbnail': thumb,
+            'is_playable': True,
+            'info_type': 'video',
+            'info': {
+                'label': title,
+                'title': title,
+                'plot': desc,
+            },
+            'properties': {
+                'fanart_image': thumb,
+            }
+        }
+
+
+class YoutubeItem(VideoItem):
+    __base_plugin_url = 'plugin://plugin.video.youtube/play/?'
+    __vid_plugin_qs = 'video_id={vid}'
+    __pl_plugin_qs = 'playlist_id={pid}'
+
+    def _get_url(self):
+        # Youtube specific handling for playlists
+        # reddit cleans up the data.media.oembed.url, urls which is good
+        # but they also remove playlist info. We want to keep them
+        if not self._url:
+            self._url = self._data['data']['url']
+            if 'list=' not in self._url:
+                media_url = self._get_media('url')
+                if media_url:
+                    self._url = media_url
+        return self._url
+
+    def _get_parsed_qs(self):
+        # handling attribution links
+        if 'u' in super(YoutubeItem, self)._get_parsed_qs():
+            self._parsed_qs = dict(parse_qsl(urlparse(self._parsed_qs['u']).query, keep_blank_values=True))
+        return self._parsed_qs
+
+    def get_plugin_url(self):
+        parsed_query = self._get_parsed_qs()
+        qs = []
+        if 'list' in parsed_query and parsed_query['list']:
+            qs.append(self.__pl_plugin_qs.format(pid=parsed_query['list']))
+        if 'v' in parsed_query:
+            qs.append(self.__vid_plugin_qs.format(vid=parsed_query['v']))
+        if len(qs) < 1:
+            # reddit sometimes handle youtu.be weirdly
+            if 'youtu.be' in self._get_parsed_url().hostname:
+                # verifier si youtu.be ne peux pas contenir une playlist
+                qs.append(self.__vid_plugin_qs.format(vid=self._get_url().split('/')[-1]))
+            else:
+                raise ParsingException('Unable tu handle URL ' + self._get_url())
+        return self.__base_plugin_url + '&'.join(qs)
+
+    def get_thumbnail_url(self):
+        return self._get_media('thumbnail_url')
+
+    # not used because it takes a lot of time to HEAD for each item (since this is not async)
+    def get_best_thumb_url(self):
+        thumb_url = 'http://i3.ytimg.com/vi/{id}/{size}.jpg'
+        size_map = {'large': 'maxresdefault', 'normal': 'sddefault', 'small': 'hqdefault'}
+        # we have to do this because python orders dict as it goddamn pleases
+        # size_list = ['large', 'normal']
+        # for s in size_list[size_list.index(size):]:
+        #    url = thumb_url.format(id=vid, size=size_map[s])
+        #    r = requests.head(url, headers=headers)
+        #    if r.status_code != 404:
+        #        return url
+        parsed_query = self._get_parsed_qs()
+        if 'v' in parsed_query:
+            url = thumb_url.format(id=parsed_query['v'], size=size_map['large'])
+            r = requests.head(url, headers=headers)
+            if r.status_code != 404:
+                return url
+            return thumb_url.format(id=parsed_query['v'], size=size_map['small'])
+        else:
+            return self.get_thumbnail_url()
+
+
+class VimeoItem(VideoItem):
+    __base_plugin_url = 'plugin://plugin.video.vimeo/play/?'
+    __vid_plugin_qs = 'video_id={vid}'
+
+    def get_plugin_url(self):
+        vid = self._get_url().split('/')[-1]
+        return self.__base_plugin_url + self.__vid_plugin_qs.format(vid=vid)
+
+    def get_thumbnail_url(self):
+        return self._get_media('thumbnail_url')
 
 
 @plugin.route('/')
@@ -76,33 +215,31 @@ def index():
 
 @plugin.route('/add_sub', name='add_sub')
 def add_sub():
-    keyboard = xbmc.Keyboard('', plugin.get_string(30009))
-    keyboard.doModal()
-    if keyboard.isConfirmed() and keyboard.getText():
-        subreddit = keyboard.getText()
+    subreddit = plugin.keyboard('', plugin.get_string(30009))
+    if subreddit:
         if subreddit.lower() not in [sub.lower() for sub in storage['subreddits']]:
-            test_url = sub_json.format(sub=subreddit, cat='hot')
-            r = requests.head(test_url, headers=headers)
+            url = sub_json.format(sub=subreddit, cat='hot')
+            r = requests.head(url, headers=headers)
             # 302 = sub does not exist | 403 = sub is private
             if r.status_code == 302 or r.status_code == 403:
                 dialog = xbmcgui.Dialog()
                 dialog.ok('Error', 'This subreddit does not exist or is private.')
             else:
                 save = True
-                r = requests.get(test_url, params={'limit': 100}, headers=headers)
-                data = r.json()
+
+                data = load_json(url, {'limit': 100})
 
                 subreddit = data['data']['children'][0]['data']['subreddit']
                 total_count = 0.0
                 video_count = 0.0
                 for item in data['data']['children']:
                     if item['data']['domain'] in known_domains:
-                        video_count = video_count + 1
-                    total_count = total_count + 1
+                        video_count += 1
+                    total_count += 1
                 if video_count / total_count < video_sub_threshold:
                     dialog = xbmcgui.Dialog()
                     save = dialog.yesno('Warning',
-                                        'It appears /r/{sub} may not be a video subreddit.'.format(sub=subreddit),
+                                        '/r/{sub} may not be a video subreddit.'.format(sub=subreddit),
                                         'Add it anyway ?')
                 if save:
                     storage['subreddits'].append(subreddit)
@@ -138,80 +275,29 @@ def show_sub(sub):
               name='show_top_y', options={'cat': 'top', 'params': {'t': 'year'}})
 @plugin.route('/show_top_a/<sub>/<after>',
               name='show_top_a', options={'cat': 'top', 'params': {'t': 'all'}})
-def show_cat(sub, cat, after='start', params={}):
+def show_cat(sub, cat, after='start', params=None):
     plugin.set_content('tvshows')
     url = sub_json.format(sub=sub, cat=cat)
     # python magic to concatenate 2 dicts
-    payload = dict(default_params, **params);
+    payload = dict(default_params, **params) if params else dict(default_params)
     if after != 'start':
         payload['after'] = after
 
-    r = requests.get(url, params=payload, headers=headers)
-    data = r.json()
+    data = load_json(url, payload)
 
     items = []
     for video in data['data']['children']:
-        if video['data']['domain'] in youtube_domains:
-            if video['data']['media'] and 'playlist' not in video['data']['url']:
-                items.append(create_item(video, youtube_plugin_url, youtube_thumb_url))
+        if video['data']['media']:
+            if video['data']['domain'] in youtube_domains:
+                items.append(YoutubeItem(video).build_item())
+            elif video['data']['domain'] in vimeo_domains:
+                items.append(VimeoItem(video).build_item())
     if data['data']['after']:
         items.append({
             'label': plugin.get_string(30010),
             'path': plugin.url_for(plugin.request.path.split('/')[1], sub=sub, after=data['data']['after'])
         })
     return plugin.finish(items)
-
-# path_func = function (url) that returns internal url to play media
-# thumb_func = function(url, size=normal) that return the thumbnail url for specified item
-def create_item(video, path_func, thumb_func):
-    #thumb_url = thumb_func(video['data']['media']['oembed']['url'], 'large')
-    thumb_url = video['data']['media']['oembed']['thumbnail_url']
-    title = video['data']['media']['oembed']['title']
-    desc = u'Score : {score} | {reddit_title}\n{desc}'
-    desc = desc.format(score=str(video['data']['score']),
-                       reddit_title=video['data']['title'],
-                       desc=video['data']['media']['oembed']['description'])
-    return {
-        'label': title,
-        'path': path_func(video['data']['media']['oembed']['url']),
-        'thumbnail': thumb_url,
-        'is_playable': True,
-        'info_type': 'video',
-        'info': {
-            'label': title,
-            'title': title,
-            'plot': desc,
-        },
-        'properties': {
-            'fanart_image': thumb_url,
-        },
-        #'context_menu': [
-        #    (plugin.get_string(30021), actions.background(plugin.url_for('download', id=str(video['em'])))),
-        #],
-    }
-
-
-def youtube_plugin_url(video_url):
-    vid = video_url.split('=')[1]
-    return 'plugin://plugin.video.youtube/play/?video_id=' + vid
-
-
-def youtube_thumb_url(video_url, size='normal'):
-    thumb_url = 'http://i3.ytimg.com//vi/{id}/{size}.jpg'
-    size_map = {'large': 'maxresdefault', 'normal': 'sddefault', 'small': 'hqdefault'}
-    # we have to do this because python orders dict as it goddamn pleases
-    #size_list = ['large', 'normal']
-    vid = video_url.split('=')[1]
-    #for s in size_list[size_list.index(size):]:
-    #    url = thumb_url.format(id=vid, size=size_map[s])
-    #    r = requests.head(url, headers=headers)
-    #    if r.status_code != 404:
-    #        return url
-    url = thumb_url.format(id=vid, size=size_map['large'])
-    r = requests.head(url, headers=headers)
-    if r.status_code != 404:
-        return url
-    return thumb_url.format(id=vid, size=size_map['small'])
 
 
 # payload :
@@ -227,6 +313,10 @@ def youtube_thumb_url(video_url, size='normal'):
 #   sr_detail   (optional) expand subreddits
 #   syntax  one of (cloudsearch, lucene, plain)
 #   t   one of (hour, day, week, month, year, all)
+def load_json(url, params=None):
+    r = requests.get(url, params=params, headers=headers)
+    return r.json()
+
 
 if __name__ == '__main__':
     plugin.run()
