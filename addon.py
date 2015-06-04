@@ -215,35 +215,66 @@ def index():
 
 @plugin.route('/add_sub', name='add_sub')
 def add_sub():
-    subreddit = plugin.keyboard('', plugin.get_string(30009))
-    if subreddit:
-        if subreddit.lower() not in [sub.lower() for sub in storage['subreddits']]:
-            url = sub_json.format(sub=subreddit, cat='hot')
-            r = requests.head(url, headers=headers)
-            # 302 = sub does not exist | 403 = sub is private
-            if r.status_code == 302 or r.status_code == 403:
-                dialog = xbmcgui.Dialog()
-                dialog.ok('Error', 'This subreddit does not exist or is private.')
-            else:
-                save = True
+    input = plugin.keyboard('', plugin.get_string(30009))
+    # you can input multiple subreddit names at once separated by a +
+    input_subs = input.split('+')
+    # inexistant subs (http code 302) or private subs (http code 403)
+    excluded_subs = {}
+    # probably not video subs
+    questionable_subs = []
+    # to memorize the correctly cased name of the subs (this is purely aesthetic)
+    correct_names = {}
+    for subreddit in input_subs:
+        if subreddit:
+            if subreddit.lower() not in [sub.lower() for sub in storage['subreddits']]:
+                url = sub_json.format(sub=subreddit, cat='hot')
+                r = requests.head(url, headers=headers)
+                # 302 = sub does not exist | 403 = sub is private
+                if r.status_code == 302 or r.status_code == 403:
+                    excluded_subs[subreddit] = r.status_code
 
-                data = load_json(url, {'limit': 100})
+                    #dialog = xbmcgui.Dialog()
+                    #dialog.ok('Error', 'This subreddit does not exist or is private.')
+                else:
+                    #save = True
 
-                subreddit = data['data']['children'][0]['data']['subreddit']
-                total_count = 0.0
-                video_count = 0.0
-                for item in data['data']['children']:
-                    if item['data']['domain'] in known_domains:
-                        video_count += 1
-                    total_count += 1
-                if video_count / total_count < video_sub_threshold:
-                    dialog = xbmcgui.Dialog()
-                    save = dialog.yesno('Warning',
-                                        '/r/{sub} may not be a video subreddit.'.format(sub=subreddit),
-                                        'Add it anyway ?')
-                if save:
-                    storage['subreddits'].append(subreddit)
+                    data = load_json(url, {'limit': 100})
 
+                    correct_names[subreddit] = data['data']['children'][0]['data']['subreddit']
+                    total_count = 0.0
+                    video_count = 0.0
+                    for item in data['data']['children']:
+                        if item['data']['domain'] in known_domains:
+                            video_count += 1
+                        total_count += 1
+                    if video_count / total_count < video_sub_threshold:
+                        questionable_subs.append(subreddit)
+                        #dialog = xbmcgui.Dialog()
+                        #save = dialog.yesno('Warning',
+                        #                    '/r/{sub} may not be a video subreddit.'.format(sub=subreddit),
+                        #                    'Add it anyway ?')
+                    #if save:
+                    #    storage['subreddits'].append(subreddit)
+    if len(excluded_subs) > 0:
+        for sub, _ in excluded_subs.iteritems():
+            input_subs.remove(sub)
+        nf = ', '.join([not_found for not_found, code in excluded_subs.iteritems() if code == 302])
+        p = ', '.join([private for private, code in excluded_subs.iteritems() if code == 403])
+        dialog = xbmcgui.Dialog()
+        dialog.ok('Error', 'Some subs couldn\'t be added:',
+                           nf + ' were not found.',
+                           p + ' are private.')
+    if len(questionable_subs) > 0:
+        for sub in questionable_subs:
+            dialog = xbmcgui.Dialog()
+            save = dialog.yesno('Warning',
+                                '/r/{sub} may not be a video subreddit.'.format(sub=correct_names[sub]),
+                                'Add it anyway ?')
+            if not save:
+                input_subs.remove(sub)
+    if len(input_subs) > 0:
+        storage['subreddits'].append('+'.join([correct_names[name] for name in input_subs]))
+        xbmc.executebuiltin("Container.Refresh")
 
 @plugin.route('/del_sub/<sub>', name='del_sub')
 def del_sub(sub):
