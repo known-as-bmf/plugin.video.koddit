@@ -4,10 +4,12 @@ Reddit add-on for Kodi (ex XBMC)
 
 Features :
 * watch youtube or vimeo videos from subreddits
-* add multireddits (multiple subreddits names separated by a "+") for a merged feed
+* add multireddits (multiple subreddits names separated by a "+") for a merged feed (eg "music+listentothis+psytrance")
+
 Known issues :
 * the addon sometimes yield an error that have no impact as far as i'm aware (working on it)
-* sometimes very few or no results are returned (try adding subs containing a decent amount of videos such ad /r/Documentaries or /r/listentothis)
+* sometimes very few or no results are returned (try adding subs containing a decent amount of videos such as /r/Documentaries or /r/listentothis)
+
 TODO:
 * fix the pagination issue
 * add ability to log-in ?
