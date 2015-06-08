@@ -1,37 +1,25 @@
 <?xml version="1.0" encoding="utf-8" standalone="yes"?>
 <strings>
-    <string id="30000">Arte +7</string>
 
     <!-- menu items -->
-    <string id="30001">Alle videos</string>
-    <string id="30002">Selection</string>
-    <string id="30003">Meistgesehen</string>
-    <string id="30004">Letzte chance</string>
-    <string id="30005">Themen</string>
-    <string id="30005">Live</string>
+    <string id="30001">New</string>
+    <string id="30002">Hot</string>
+    <string id="30003">Top (Hour)</string>
+    <string id="30004">Top (Day)</string>
+    <string id="30005">Top (Week)</string>
+    <string id="30006">Top (Month)</string>
+    <string id="30007">Top (Year)</string>
+    <string id="30008">Top (All time)</string>
+    <string id="30009">Add subreddit</string>
+    <string id="30010">Next page</string>
+
+    <string id="30011">was not found.</string>
+    <string id="30012">were not found.</string>
+    <string id="30013">is private.</string>
+    <string id="30014">are private.</string>
 
     <!-- context menu -->
-    <string id="30020">Add to queue</string>
-    <string id="30021">Download video</string>
+    <string id="30020">Delete subreddit</string>
 
     <!-- options -->
-    <string id="30050">Language (Videos)</string>
-    <string id="30051">Stream video quality</string>
-    <string id="30052">Streaming protocol</string>
-    <string id="30053">Download directory</string>
-    <string id="30054">Download video quality</string>
-
-    <!-- themes -->
-    <string id="3000501">Aktuelles</string>
-    <string id="3000502">Dokumentationen</string>
-    <string id="3000503">Entdeckung</string>
-    <string id="3000504">Europa</string>
-    <string id="3000505">Geopolitik &amp; Geschichte</string>
-    <string id="3000506">Gesellschaft</string>
-    <string id="3000507">Junior</string>
-    <string id="3000508">Andere</string>
-    <string id="3000509">Kino &amp; Serien</string>
-    <string id="3000510">Kunst &amp; Kultur</string>
-    <string id="3000511">Popkultur &amp; Musik</string>
-    <string id="3000512">Umwelt &amp; Wissenschaft</string>
 </strings>

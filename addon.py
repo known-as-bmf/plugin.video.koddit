@@ -1,7 +1,7 @@
 #!/usr/bin/python
 # -*- coding: utf-8 -*-
 #
-#     Copyright (C) 2015 known-as-bmf
+# Copyright (C) 2015 known-as-bmf
 #
 #    This program is free software: you can redistribute it and/or modify
 #    it under the terms of the GNU General Public License as published by
@@ -17,14 +17,16 @@
 #    along with this program. If not, see <http://www.gnu.org/licenses/>.
 #
 
-from xbmcswift2 import Plugin
-from xbmcswift2 import actions
-import requests
 from urlparse import parse_qsl, urlparse
 import HTMLParser
+
+from xbmcswift2 import Plugin
+from xbmcswift2 import actions
+
+import requests
+
 import xbmc
 import xbmcgui
-
 
 plugin = Plugin()
 
@@ -35,8 +37,8 @@ if 'subreddits' not in storage:
 base_url = 'http://www.reddit.com'
 sub_json = base_url + '/r/{sub}/{cat}.json'
 
-categories = [('new',   30001),
-              ('hot',   30002),
+categories = [('new', 30001),
+              ('hot', 30002),
               ('top_h', 30003),
               ('top_d', 30004),
               ('top_w', 30005),
@@ -199,13 +201,13 @@ class VimeoItem(VideoItem):
 @plugin.route('/')
 def index():
     items = [{
-        'label': sub,
-        'path': plugin.url_for('show_sub', sub=sub),
+                 'label': sub,
+                 'path': plugin.url_for('show_sub', sub=sub),
 
-        'context_menu': [
-            (plugin.get_string(30020), actions.background(plugin.url_for('del_sub', sub=sub)))
-        ]
-    } for sub in storage['subreddits']]
+                 'context_menu': [
+                     (plugin.get_string(30020), actions.background(plugin.url_for('del_sub', sub=sub)))
+                 ]
+             } for sub in storage['subreddits']]
     items.append({
         'label': plugin.get_string(30009),
         'path': plugin.url_for('add_sub')
@@ -215,66 +217,66 @@ def index():
 
 @plugin.route('/add_sub', name='add_sub')
 def add_sub():
-    input = plugin.keyboard('', plugin.get_string(30009))
-    # you can input multiple subreddit names at once separated by a +
-    input_subs = input.split('+')
-    # inexistant subs (http code 302) or private subs (http code 403)
-    excluded_subs = {}
-    # probably not video subs
-    questionable_subs = []
-    # to memorize the correctly cased name of the subs (this is purely aesthetic)
-    correct_names = {}
-    for subreddit in input_subs:
-        if subreddit:
-            if subreddit.lower() not in [sub.lower() for sub in storage['subreddits']]:
-                url = sub_json.format(sub=subreddit, cat='hot')
-                r = requests.head(url, headers=headers)
-                # 302 = sub does not exist | 403 = sub is private
-                if r.status_code == 302 or r.status_code == 403:
-                    excluded_subs[subreddit] = r.status_code
-
-                    #dialog = xbmcgui.Dialog()
-                    #dialog.ok('Error', 'This subreddit does not exist or is private.')
-                else:
-                    #save = True
-
-                    data = load_json(url, {'limit': 100})
-
-                    correct_names[subreddit] = data['data']['children'][0]['data']['subreddit']
-                    total_count = 0.0
-                    video_count = 0.0
-                    for item in data['data']['children']:
-                        if item['data']['domain'] in known_domains:
-                            video_count += 1
-                        total_count += 1
-                    if video_count / total_count < video_sub_threshold:
-                        questionable_subs.append(subreddit)
-                        #dialog = xbmcgui.Dialog()
-                        #save = dialog.yesno('Warning',
-                        #                    '/r/{sub} may not be a video subreddit.'.format(sub=subreddit),
-                        #                    'Add it anyway ?')
-                    #if save:
-                    #    storage['subreddits'].append(subreddit)
-    if len(excluded_subs) > 0:
-        for sub, _ in excluded_subs.iteritems():
-            input_subs.remove(sub)
-        nf = ', '.join([not_found for not_found, code in excluded_subs.iteritems() if code == 302])
-        p = ', '.join([private for private, code in excluded_subs.iteritems() if code == 403])
-        dialog = xbmcgui.Dialog()
-        dialog.ok('Error', 'Some subs couldn\'t be added:',
-                           nf + ' were not found.',
-                           p + ' are private.')
-    if len(questionable_subs) > 0:
-        for sub in questionable_subs:
+    userinput = plugin.keyboard('', plugin.get_string(30009))
+    if userinput:
+        # you can input multiple subreddit names at once separated by a +
+        input_subs = userinput.split('+')
+        # inexistant subs (http code 302) or private subs (http code 403)
+        not_found = []
+        private = []
+        # probably not video subs
+        questionable_subs = []
+        # to memorize the correctly cased name of the subs (this is purely aesthetic)
+        correct_names = {}
+        for subreddit in input_subs[:]:
+            url = sub_json.format(sub=subreddit, cat='hot')
+            r = requests.head(url, headers=headers)
+            # 302 = sub does not exist | 403 = sub is private
+            if r.status_code == 302:
+                not_found.append(subreddit)
+                input_subs.remove(subreddit)
+            elif r.status_code == 403:
+                private.append(subreddit)
+                input_subs.remove(subreddit)
+            else:
+                # retrieving 100 first hot posts to compute the percentage of video links
+                data = load_json(url, {'limit': 100})
+                # retrieve the correctly cased name of the sub while we're at it
+                correct_names[subreddit] = data['data']['children'][0]['data']['subreddit']
+                total_count = 0.0
+                video_count = 0.0
+                for item in data['data']['children']:
+                    if item['data']['domain'] in known_domains:
+                        video_count += 1
+                    total_count += 1
+                if video_count / total_count < video_sub_threshold:
+                    questionable_subs.append(subreddit)
+        if len(not_found) + len(private) > 0:
+            nf = p = ''
+            if len(not_found) > 0:
+                nf = ', '.join(not_found) + ' ' + (
+                    plugin.get_string(30011) if len(not_found) == 1 else plugin.get_string(30012))
+            if len(private) > 0:
+                p = ', '.join(private) + ' ' + (
+                    plugin.get_string(30013) if len(private) == 1 else plugin.get_string(30014))
             dialog = xbmcgui.Dialog()
-            save = dialog.yesno('Warning',
-                                '/r/{sub} may not be a video subreddit.'.format(sub=correct_names[sub]),
-                                'Add it anyway ?')
-            if not save:
-                input_subs.remove(sub)
-    if len(input_subs) > 0:
-        storage['subreddits'].append('+'.join([correct_names[name] for name in input_subs]))
-        xbmc.executebuiltin("Container.Refresh")
+            dialog.ok('Error', 'The following subs couldn\'t be added:',
+                      nf,
+                      p)
+        if len(questionable_subs) > 0:
+            for sub in questionable_subs:
+                dialog = xbmcgui.Dialog()
+                save = dialog.yesno('Warning',
+                                    '/r/{sub} may not be a video subreddit.'.format(sub=correct_names[sub]),
+                                    'Add it anyway ?')
+                if not save:
+                    input_subs.remove(sub)
+        if len(input_subs) > 0:
+            sub_str = '+'.join([correct_names[name] for name in input_subs])
+            if sub_str not in storage['subreddits']:
+                storage['subreddits'].append(sub_str)
+                # xbmc.executebuiltin("Container.Refresh")
+
 
 @plugin.route('/del_sub/<sub>', name='del_sub')
 def del_sub(sub):
@@ -285,9 +287,9 @@ def del_sub(sub):
 @plugin.route('/show_sub/<sub>', name='show_sub')
 def show_sub(sub):
     return [{
-        'label': plugin.get_string(value),
-        'path': plugin.url_for('show_' + key, sub=sub, after='start')
-    } for key, value in categories]
+                'label': plugin.get_string(value),
+                'path': plugin.url_for('show_' + key, sub=sub, after='start')
+            } for key, value in categories]
 
 
 @plugin.route('/show_new/<sub>/<after>',
