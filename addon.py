@@ -53,6 +53,7 @@ youtube_domains = ['youtube.com', 'youtu.be', 'm.youtube.com']
 vimeo_domains = ['vimeo.com']
 known_domains = youtube_domains + vimeo_domains
 video_sub_threshold = 0.65
+video_list_threshold = 0.90
 
 
 class ParsingException(Exception):
@@ -316,21 +317,37 @@ def show_cat(sub, cat, after='start', params=None):
     if after != 'start':
         payload['after'] = after
 
-    data = load_json(url, payload)
+    # data = load_json(url, payload)
 
     items = []
-    for video in data['data']['children']:
-        if video['data']['media']:
-            if video['data']['domain'] in youtube_domains:
-                items.append(YoutubeItem(video).build_item())
-            elif video['data']['domain'] in vimeo_domains:
-                items.append(VimeoItem(video).build_item())
+    data = None
+    # TODO: dynamic size in settings
+    while (len(items) * (1 + video_list_threshold)) < 30:
+        if data:
+            if data['data']['after']:
+                payload['after'] = data['data']['after']
+            else:
+                # no more posts to retrieve
+                break
+        data = load_json(url, payload)
+        items += get_video_items(data)
     if data['data']['after']:
         items.append({
             'label': plugin.get_string(30010),
             'path': plugin.url_for(plugin.request.path.split('/')[1], sub=sub, after=data['data']['after'])
         })
     return plugin.finish(items)
+
+
+def get_video_items(json):
+    items = []
+    for video in json['data']['children']:
+        if video['data']['media']:
+            if video['data']['domain'] in youtube_domains:
+                items.append(YoutubeItem(video).build_item())
+            elif video['data']['domain'] in vimeo_domains:
+                items.append(VimeoItem(video).build_item())
+    return items
 
 
 # payload :
